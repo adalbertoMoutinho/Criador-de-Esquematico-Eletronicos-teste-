@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Criador de Esquemáticos com Salvamento Local</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #painel-controle {
+            margin-bottom: 15px;
+            background: #262626;
+            padding: 12px 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+            border: 1px solid #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        #painel-comando {
+            width: min(100%, 1004px);
+            margin-top: 12px;
+            padding: 12px 25px;
+            background: #262626;
+            border: 1px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-sizing: border-box;
+        }
+        #painel-comando input#cmd-prompt { flex: 1; min-width: 0; width: auto; }
+        @media (max-width: 600px) {
+            #painel-comando { padding: 10px; }
+            #painel-comando input#cmd-prompt { width: 100%; }
+        }
+        button, input {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        button:hover { background: #1d4ed8; }
+        input#cmd-prompt { 
+            background: #000; 
+            border: 1px solid #059669; 
+            color: #10b981; 
+            font-family: 'Courier New', Courier, monospace;
+            cursor: text; 
+            width: 320px; 
+            text-align: left;
+            padding: 8px 12px;
+            font-size: 14px;
+        }
+        input#cmd-prompt:focus { border-color: #34d399; outline: none; box-shadow: 0 0 5px rgba(16, 185, 129, 0.5); }
+        #area-com-reguas {
+            width: min(100%, 1054px);
+            display: grid;
+            grid-template-columns: 42px minmax(0, 1fr);
+            grid-template-rows: minmax(350px, min(70vh, 650px)) 28px;
+            gap: 0;
+        }
+        #regua-vertical, #regua-horizontal {
+            display: block;
+            background: #202a36;
+            color: #cbd5e1;
+        }
+        #regua-vertical { width: 42px; height: 100%; grid-column: 1; grid-row: 1; }
+        #regua-horizontal { width: 100%; height: 28px; grid-column: 2; grid-row: 2; }
+        #area-visualizacao {
+            width: 100%;
+            height: 100%;
+            min-height: 0;
+            grid-column: 2;
+            grid-row: 1;
+            overflow: auto;
+            border: 2px solid #2563eb;
+            border-radius: 6px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+            background: #fff;
+            cursor: grab;
+            overscroll-behavior: contain;
+        }
+        #area-visualizacao:active { cursor: grabbing; }
+        @media (max-width: 600px) {
+            #area-com-reguas { grid-template-columns: 32px minmax(0, 1fr); grid-template-rows: minmax(300px, 60vh) 24px; }
+            #regua-vertical { width: 32px; }
+            #regua-horizontal { height: 24px; }
+        }
+        canvas {
+            display: block;
+            background-color: #ffffff;
+            cursor: crosshair;
+        }
+        #btn-mover-tela { background: #d97706; }
+        #btn-mover-tela.ativo { background: #b91c1c; }
+        #status {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #888;
+            background: #222;
+            padding: 5px 15px;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="painel-controle">
+<button onclick="ativarModoFio()" id="btn-fio" style="background: #059669;">Modo Fiação: OFF</button>
+        <button onclick="alternarMoverTela()" id="btn-mover-tela" title="Arraste o fundo para navegar pelo esquema">Mover tela: OFF</button>
+        <button onclick="centralizarVisualizacao()" style="background: #64748b;" title="Voltar ao início da área">Centralizar tela</button>
+        <button onclick="excluirComponenteSelecionado()" id="btn-excluir" style="background: #b91c1c;" title="Excluir o componente selecionado">Excluir componente</button>
+        <button onclick="excluirConexaoSelecionada()" id="btn-excluir-fio" style="background: #ea580c;" title="Clique em um fio para selecioná-lo e então excluí-lo">Excluir linha</button>
+        <button onclick="salvarProjeto()" style="background: #8b5cf6;">Salvar Projeto</button>
+        <button onclick="document.getElementById('input-arquivo').click();" style="background: #10b981;">Abrir Projeto</button>
+        <input type="file" id="input-arquivo" style="display: none;" accept=".json" onchange="carregarProjeto(event)">
+        <button onclick="limparCanvas()" style="background: #dc2626;">Limpar Tudo</button>
+    </div>
+
+    <div id="area-com-reguas">
+        <canvas id="regua-vertical" aria-label="Régua vertical de coordenadas"></canvas>
+        <div id="area-visualizacao" aria-label="Área navegável do esquemático">
+            <canvas id="esquematicoCanvas" width="3000" height="2000"></canvas>
+        </div>
+        <canvas id="regua-horizontal" aria-label="Régua horizontal de coordenadas"></canvas>
+    </div>
+    
+    <div id="painel-comando">
+        <label for="cmd-prompt" style="color: #10b981; font-family: monospace; font-weight: bold; white-space: nowrap;">PROMPT CLI &gt;</label>
+        <input type="text" id="cmd-prompt" placeholder="add[R1,10k] | move[R1,400,200] | createcomponente[...]" onkeydown="verificarTeclaEnter(event)">
+        <button onclick="executarLinhaComando()">Executar</button>
+    </div>
+
+    <div id="status">Comandos: add[Q1,NPN] cria um transistor; move[R1,400,200] posiciona um componente por coordenadas; createcomponente[...] cria componentes personalizados. Réguas mostram as coordenadas X e Y.</div>
+
+<script>
+const canvas = document.getElementById('esquematicoCanvas');
+const areaVisualizacao = document.getElementById('area-visualizacao');
+const ctx = canvas.getContext('2d');
+const txtStatus = document.getElementById('status');
+const inputPrompt = document.getElementById('cmd-prompt');
+const reguaHorizontal = document.getElementById('regua-horizontal');
+const reguaVertical = document.getElementById('regua-vertical');
+const ctxReguaH = reguaHorizontal.getContext('2d');
+const ctxReguaV = reguaVertical.getContext('2d');
+
+let componentes = [];
+let conexoes = [];
+let arrastandoComp = null;
+let componenteSelecionado = null;
+let conexaoSelecionada = null;
+let pinoOrigemFio = null;
+let modoFiacao = false;
+let modoMoverTela = false;
+let arrastandoTela = false;
+let inicioArrastoTela = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
+let offset = { x: 0, y: 0 };
+
+class ComponenteEsquematico {
+    constructor(id, tipo, valor, x, y, metadados = null) {
+        this.id = id;
+        this.tipo = tipo.toUpperCase();
+        this.valor = valor;
+        this.x = x;
+        this.y = y;
+        this.largura = 80;
+        this.altura = 60;
+        this.pinos = [];
+        this.metadados = metadados || null;
+        this.rotacao = Number(this.metadados?.rotacao || 0);
+        this.inicializarPinos();
+        const nomesSalvos = this.metadados?.nomesPinos || {};
+        this.pinos.forEach(p => { if (nomesSalvos[p.nome]) p.rotulo = nomesSalvos[p.nome]; });
+    }
+
+    inicializarPinos() {
+        if (this.tipo === 'R' || this.tipo === 'C' || this.tipo === 'D') {
+            this.pinos.push({ nome: '1', relX: 0, relY: 30 });
+            this.pinos.push({ nome: '2', relX: 80, relY: 30 });
+        } else if (this.tipo === 'Q') { 
+            this.pinos.push({ nome: 'B', relX: 15, relY: 30 });
+            this.pinos.push({ nome: 'C', relX: 55, relY: 5 });
+            this.pinos.push({ nome: 'E', relX: 55, relY: 55 });
+        } else if (this.tipo === 'VCC') {
+            this.pinos.push({ nome: '1', relX: 20, relY: 40 });
+        } else if (this.tipo === 'GND') {
+            this.pinos.push({ nome: '1', relX: 20, relY: 0 });
+        } else if (this.tipo === 'CI') {
+            const leftCount = this.metadados.left;
+            const rightCount = this.metadados.right;
+            const maxPinosPorLado = Math.max(leftCount, rightCount);
+            this.largura = 100;
+            this.altura = Math.max(60, maxPinosPorLado * 20 + 20);
+
+            for(let i = 0; i < leftCount; i++) {
+                this.pinos.push({ nome: 'L' + (i+1), relX: 0, relY: 20 + (i * 20) });
+            }
+            for(let i = 0; i < rightCount; i++) {
+                this.pinos.push({ nome: 'R' + (i+1), relX: 100, relY: 20 + (i * 20) });
+            }
+        }
+    }
+
+    posicaoPino(pino) {
+        const rad = (this.rotacao || 0) * Math.PI / 180;
+        const centroX = this.largura / 2, centroY = this.altura / 2;
+        const dx = pino.relX - centroX, dy = pino.relY - centroY;
+        return {
+            x: this.x + centroX + dx * Math.cos(rad) - dy * Math.sin(rad),
+            y: this.y + centroY + dx * Math.sin(rad) + dy * Math.cos(rad)
+        };
+    }
+
+    desenhar(c) {
+        c.save();
+        const centroX = this.x + this.largura / 2, centroY = this.y + this.altura / 2;
+        c.translate(centroX, centroY);
+        c.rotate((this.rotacao || 0) * Math.PI / 180);
+        c.translate(-centroX, -centroY);
+        c.lineWidth = 2;
+        c.strokeStyle = '#000000'; 
+        c.fillStyle = '#000000';
+        const cx = this.x;
+        const cy = this.y;
+
+        if (this.tipo === 'R') {
+            c.beginPath(); c.moveTo(cx, cy + 30); c.lineTo(cx + 20, cy + 30);
+            c.lineTo(cx + 24, cy + 18); c.lineTo(cx + 32, cy + 42);
+            c.lineTo(cx + 40, cy + 18); c.lineTo(cx + 48, cy + 42);
+            c.lineTo(cx + 56, cy + 18); c.lineTo(cx + 60, cy + 30);
+            c.lineTo(cx + 80, cy + 30); c.stroke();
+        } else if (this.tipo === 'C') {
+            c.beginPath();
+            c.moveTo(cx, cy + 30); c.lineTo(cx + 36, cy + 30);
+            c.moveTo(cx + 36, cy + 12); c.lineTo(cx + 36, cy + 48);
+            c.moveTo(cx + 44, cy + 12); c.lineTo(cx + 44, cy + 48);
+            c.moveTo(cx + 44, cy + 30); c.lineTo(cx + 80, cy + 30);
+            c.stroke();
+        } else if (this.tipo === 'D') {
+            c.beginPath(); c.moveTo(cx, cy + 30); c.lineTo(cx + 30, cy + 30);
+            c.moveTo(cx + 50, cy + 30); c.lineTo(cx + 80, cy + 30); c.stroke();
+            c.beginPath(); c.moveTo(cx + 30, cy + 15); c.lineTo(cx + 50, cy + 30); c.lineTo(cx + 30, cy + 45); c.closePath(); c.stroke();
+            c.beginPath(); c.moveTo(cx + 50, cy + 15); c.lineTo(cx + 50, cy + 45); c.stroke();
+        } else if (this.tipo === 'Q') {
+            c.beginPath();
+            c.moveTo(cx + 30, cy + 15); c.lineTo(cx + 30, cy + 45);
+            c.moveTo(cx + 15, cy + 30); c.lineTo(cx + 30, cy + 30);
+            c.moveTo(cx + 30, cy + 24); c.lineTo(cx + 55, cy + 5); 
+            c.moveTo(cx + 30, cy + 36); c.lineTo(cx + 55, cy + 55); c.stroke();
+            c.beginPath(); c.arc(cx + 40, cy + 30, 25, 0, Math.PI * 2); c.stroke();
+            c.beginPath(); c.moveTo(cx + 51, cy + 52); c.lineTo(cx + 42, cy + 50); c.lineTo(cx + 48, cy + 41); c.closePath(); c.fill();
+            // Identificação visual dos terminais do transistor
+            c.fillStyle = "#1e293b"; c.font = "bold 10px Arial";
+            c.fillText("B", cx + 5, cy + 26);
+            c.fillText("C", cx + 58, cy + 8);
+            c.fillText("E", cx + 58, cy + 58);
+        } else if (this.tipo === 'VCC') {
+            c.beginPath();
+            c.moveTo(cx + 20, cy + 40); c.lineTo(cx + 20, cy + 15);
+            c.moveTo(cx + 10, cy + 15); c.lineTo(cx + 20, cy + 0); c.lineTo(cx + 30, cy + 15);
+            c.closePath(); c.stroke();
+        } else if (this.tipo === 'GND') {
+            c.beginPath();
+            c.moveTo(cx + 20, cy + 0); c.lineTo(cx + 20, cy + 20);
+            c.moveTo(cx + 5, cy + 20); c.lineTo(cx + 35, cy + 20);
+            c.moveTo(cx + 10, cy + 26); c.lineTo(cx + 30, cy + 26);
+            c.moveTo(cx + 15, cy + 32); c.lineTo(cx + 25, cy + 32);
+            c.stroke();
+        } else if (this.tipo === 'CI') {
+            c.fillStyle = "#eef2f6"; c.fillRect(cx, cy, this.largura, this.altura); c.strokeRect(cx, cy, this.largura, this.altura);
+            c.beginPath(); c.arc(cx + 50, cy, 8, 0, Math.PI); c.stroke();
+        }
+
+        c.fillStyle = "#0024cc"; c.font = "bold 13px Courier New";
+        if (this.tipo === 'VCC' || this.tipo === 'GND') {
+            c.fillText(this.id, cx + 5, cy - 6);
+        } else {
+            c.fillText(this.id, cx + 15, cy - 6);
+            c.fillStyle = "#444444"; c.font = "11px Arial";
+            c.fillText(this.valor, cx + 15, cy + this.altura + 14);
+        }
+
+        this.pinos.forEach(pino => {
+            const px = cx + pino.relX; const py = cy + pino.relY;
+            c.fillStyle = "#ff0000"; c.beginPath(); c.arc(px, py, 3.5, 0, Math.PI * 2); c.fill();
+            if (this.tipo === 'CI') {
+                c.fillStyle = "#1e2937"; c.font = "9px monospace";
+                if(pino.nome.startsWith('L')) { c.fillText(pino.nome, px + 8, py + 3); } else { c.fillText(pino.nome, px - 20, py + 3); }
+                if (pino.rotulo) {
+                    c.fillStyle = "#b91c1c"; c.font = "bold 10px Arial";
+                    c.textAlign = pino.nome.startsWith('L') ? "right" : "left";
+                    c.fillText(pino.rotulo, pino.nome.startsWith('L') ? px - 8 : px + 8, py - 5);
+                    c.textAlign = "start";
+                }
+            }
+        });
+        c.restore();
+    }
+
+    verificarCliquePino(mx, my) {
+        for (let pino of this.pinos) {
+            const pos = this.posicaoPino(pino);
+            if (Math.hypot(mx - pos.x, my - pos.y) <= 7) return pino;
+        }
+        return null;
+    }
+
+    contemPonto(mx, my) {
+        const rad = -(this.rotacao || 0) * Math.PI / 180;
+        const cx = this.x + this.largura / 2, cy = this.y + this.altura / 2;
+        const dx = mx - cx, dy = my - cy;
+        const lx = cx + dx * Math.cos(rad) - dy * Math.sin(rad);
+        const ly = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
+        return lx >= this.x && lx <= this.x + this.largura && ly >= this.y && ly <= this.y + this.altura;
+    }
+}
+
+
+
+
+
+function verificarTeclaEnter(event) {
+    if (event.key === 'Enter') executarLinhaComando();
+}
+
+function executarLinhaComando() {
+    const rawCmd = inputPrompt.value.trim();
+    if (!rawCmd) return;
+
+    if (!rawCmd.includes("[") || !rawCmd.includes("]")) {
+        exibirErroCLI("Sintaxe inválida! Use colchetes [ ]."); return;
+    }
+
+    // CORREÇÃO: Pegamos a primeira parte antes do colchete como String para rodar toLowerCase() com segurança
+    const opCode = rawCmd.slice(0, rawCmd.indexOf("[")).toLowerCase().trim();
+
+    // Lê o comando até o colchete de fechamento correspondente, aceitando
+    // colchetes internos como left[pin 1=base,pin 2=coletor].
+    const inicioCorpo = rawCmd.indexOf("[");
+    let profundidade = 0;
+    let fimCorpo = -1;
+    for (let i = inicioCorpo; i < rawCmd.length; i++) {
+        if (rawCmd[i] === "[") profundidade++;
+        else if (rawCmd[i] === "]") {
+            profundidade--;
+            if (profundidade === 0) { fimCorpo = i; break; }
+        }
+    }
+    if (fimCorpo === -1) {
+        exibirErroCLI("Comando inválido: confira os colchetes.");
+        return;
+    }
+
+    const corpo = rawCmd.slice(inicioCorpo + 1, fimCorpo);
+    const separarParametros = texto => {
+        const itens = [];
+        let nivel = 0, inicio = 0;
+        for (let i = 0; i < texto.length; i++) {
+            if (texto[i] === "[") nivel++;
+            else if (texto[i] === "]") nivel--;
+            else if (texto[i] === "," && nivel === 0) {
+                itens.push(texto.slice(inicio, i).trim());
+                inicio = i + 1;
+            }
+        }
+        itens.push(texto.slice(inicio).trim());
+        return itens.filter(Boolean);
+    };
+    const partes = separarParametros(corpo);
+
+    // ==========================================
+    // COMANDO: ADD (Componentes comuns)
+    // ==========================================
+    if (opCode === "add") {
+        if (partes.length < 2) { exibirErroCLI("Exemplos: add[R1,10k] ou add[Q1,NPN]"); return; }
+        let nome = partes[0];
+        let valor = partes[1];
+        // Também aceita a forma explícita: add[transistor,Q1,NPN]
+        if (/^(transistor|transistor\s+(npn|pnp))$/i.test(partes[0])) {
+            if (partes.length < 3) { exibirErroCLI("Use add[transistor,Q1,NPN] ou add[transistor,Q1,PNP]."); return; }
+            nome = partes[1];
+            valor = partes[2];
+            if (!/^Q/i.test(nome)) nome = "Q" + nome;
+        }
+        let tipo = nome.charAt(0).toUpperCase();
+        if (nome.toUpperCase().startsWith("VCC")) tipo = "VCC";
+        if (nome.toUpperCase().startsWith("GND")) tipo = "GND";
+        if (/^(transistor|npn|pnp)$/i.test(nome)) { exibirErroCLI("Dê um identificador ao transistor, por exemplo Q1."); return; }
+        if (!['R', 'C', 'D', 'Q', 'VCC', 'GND'].includes(tipo)) { exibirErroCLI("Tipo desconhecido. Para transistor use add[Q1,NPN]."); return; }
+        gerarNovoComponente(nome, tipo, valor);
+    } 
+    // ==========================================
+    // COMANDO: CREATE (Circuitos Integrados Customizados)
+    // ==========================================
+    else if (opCode === "create") {
+        if (partes.length < 3) { exibirErroCLI("Use: create[U1, 4left, 4right]"); return; }
+        const nome = partes[0];
+        const leftCount = parseInt(partes[1].toLowerCase().replace("left", ""));
+        const rightCount = parseInt(partes[2].toLowerCase().replace("right", ""));
+        if (isNaN(leftCount) || isNaN(rightCount) || leftCount < 0 || rightCount < 0) {
+            exibirErroCLI("Pinos inválidos."); return;
+        }
+        const nomesPinos = {};
+        const ordemPinos = [
+            ...Array.from({ length: leftCount }, (_, i) => "L" + (i + 1)),
+            ...Array.from({ length: rightCount }, (_, i) => "R" + (i + 1))
+        ];
+        partes.slice(3).forEach(item => {
+            const match = item.match(/^pino\s*(\d+)\s+(.+)$/i);
+            if (match) {
+                const indice = parseInt(match[1], 10) - 1;
+                if (indice >= 0 && indice < ordemPinos.length) nomesPinos[ordemPinos[indice]] = match[2].trim();
+            } else {
+                const lado = item.match(/^([LR]\d+)\s+(.+)$/i);
+                if (lado) nomesPinos[lado[1].toUpperCase()] = lado[2].trim();
+            }
+        });
+        gerarNovoComponente(nome, "CI", "Circuit Integr.", { left: leftCount, right: rightCount, nomesPinos });
+    } 
+    // ==========================================
+    // COMANDO: CREATECOMPONENTE (Componente personalizado com pinos nomeados)
+    // Exemplo:
+    // createcomponente[transistor,3left,0right,left[pin 1=base,pin 2=coletor,pin 3=emissor],right[0]]
+    // ==========================================
+    else if (opCode === "createcomponente" || opCode === "createcomponent" || opCode === "criarcomponente") {
+        if (partes.length < 3) {
+            exibirErroCLI("Use: createcomponente[QX,3left,0right,left[pin 1=base,pin 2=coletor,pin 3=emissor],right[0]]");
+            return;
+        }
+
+        const nome = partes[0];
+        const leftMatch = partes[1].match(/^(\d+)\s*left$/i);
+        const rightMatch = partes[2].match(/^(\d+)\s*right$/i);
+        if (!leftMatch || !rightMatch) {
+            exibirErroCLI("Informe a quantidade de pinos no formato 3left e 0right.");
+            return;
+        }
+
+        const leftCount = parseInt(leftMatch[1], 10);
+        const rightCount = parseInt(rightMatch[1], 10);
+        const nomesPinos = {};
+
+        const lerRotulosDoLado = (secao, nomeLado, prefixo, quantidade) => {
+            const matchLado = secao.match(new RegExp("^" + nomeLado + "\\s*\\[([\\s\\S]*)\\]$", "i"));
+            if (!matchLado) {
+                exibirErroCLI("Seção de pinos inválida: " + secao);
+                return false;
+            }
+            const conteudo = matchLado[1].trim();
+            if (!conteudo || conteudo === "0") return true;
+
+            for (const item of separarParametros(conteudo)) {
+                // Formatos aceitos: pin 1=base, pin2=coletor, pin=3 emissor, pino 3 emissor.
+                const m = item.match(/^(?:pin|pino)\s*(?:=\s*)?(\d+)\s*(?:=|\s+)\s*(.+)$/i);
+                if (!m) {
+                    exibirErroCLI("Rótulo inválido: " + item + ". Use pin 1=base.");
+                    return false;
+                }
+                const numero = parseInt(m[1], 10);
+                const rotulo = m[2].trim();
+                if (numero < 1 || numero > quantidade) {
+                    exibirErroCLI("O pino " + numero + " não existe no lado " + nomeLado + ".");
+                    return false;
+                }
+                nomesPinos[prefixo + numero] = rotulo;
+            }
+            return true;
+        };
+
+        for (const secao of partes.slice(3)) {
+            const ladoMatch = secao.match(/^\s*(left|right)\s*\[/i);
+            if (!ladoMatch) {
+                exibirErroCLI("Seção inválida: " + secao + ". Use left[...] ou right[...].");
+                return;
+            }
+            const nomeLado = ladoMatch[1].toLowerCase();
+            const prefixo = nomeLado === "left" ? "L" : "R";
+            const quantidade = nomeLado === "left" ? leftCount : rightCount;
+            if (!lerRotulosDoLado(secao, nomeLado, prefixo, quantidade)) return;
+        }
+
+        gerarNovoComponente(nome, "CI", "Componente personalizado", {
+            left: leftCount,
+            right: rightCount,
+            nomesPinos
+        });
+    }
+    // ==========================================
+    // COMANDO: MOVE (Posicionar componente por coordenadas)
+    // Exemplo: move[R1,400,200]
+    // ==========================================
+    else if (opCode === "move" || opCode === "mover") {
+        if (partes.length !== 3) { exibirErroCLI("Use: move[R1,400,200]"); return; }
+        const comp = componentes.find(c => c.id.toUpperCase() === partes[0].toUpperCase());
+        if (!comp) { exibirErroCLI(`Componente ${partes[0]} não encontrado.`); return; }
+        const x = Number(partes[1]);
+        const y = Number(partes[2]);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > canvas.width - comp.largura || y > canvas.height - comp.altura) {
+            exibirErroCLI(`Coordenadas inválidas. Use X entre 0 e ${canvas.width - comp.largura} e Y entre 0 e ${canvas.height - comp.altura}.`); return;
+        }
+        // Mantém o alinhamento com a grade de 20 unidades usada pelo mouse.
+        comp.x = Math.round(x / 20) * 20;
+        comp.y = Math.round(y / 20) * 20;
+        componenteSelecionado = comp;
+        desenharCenário();
+        exibirSucessoCLI(`${comp.id} movido para X=${comp.x}, Y=${comp.y}.`);
+    }
+    // ==========================================
+    // COMANDO: CONNECT (Traçar Fios via Texto)
+    // ==========================================
+    else if (opCode === "connect") {
+        if (partes.length < 2) { exibirErroCLI("Use: connect[R1.2, Q1.B]"); return; }
+        fazerConexaoDireta(partes[0], partes[1]);
+    }
+    else if (opCode === "deletewire" || opCode === "deletarlinha" || opCode === "removerlinha") {
+        if (partes.length < 1 || !partes[0]) { exibirErroCLI("Use: deletewire[1]"); return; }
+        const indice = parseInt(partes[0], 10) - 1;
+        if (!Number.isInteger(indice) || indice < 0 || indice >= conexoes.length) { exibirErroCLI("Número de linha inválido. Confira a quantidade de conexões."); return; }
+        removerConexao(conexoes[indice]);
+    }
+    else if (opCode === "delete" || opCode === "deletar" || opCode === "remover") {
+        if (partes.length < 1 || !partes[0]) { exibirErroCLI("Use: delete[R1]"); return; }
+        const alvo = componentes.find(c => c.id.toUpperCase() === partes[0].toUpperCase());
+        if (!alvo) { exibirErroCLI(`Componente ${partes[0]} não encontrado.`); return; }
+        removerComponente(alvo);
+    }
+    else if (opCode === "rotate" || opCode === "rotacionar") {
+        if (partes.length < 1) { exibirErroCLI("Use: rotate[U1,90] ou rotate[U1]"); return; }
+        const comp = componentes.find(c => c.id.toUpperCase() === partes[0].toUpperCase());
+        if (!comp) { exibirErroCLI("Componente não encontrado."); return; }
+        const graus = partes[1] ? parseInt(partes[1], 10) : 90;
+        if (![90, 180, 270, -90, -180, -270].includes(graus)) {
+            exibirErroCLI("Use rotação de 90, 180 ou 270 graus."); return;
+        }
+        comp.rotacao = ((comp.rotacao + graus) % 360 + 360) % 360;
+        desenharCenário();
+        exibirSucessoCLI(`${comp.id} rotacionado em ${comp.rotacao}°.`);
+    }
+}
+
+function fazerConexaoDireta(pinoRef1, pinoRef2) {
+    if (!pinoRef1.includes(".") || !pinoRef2.includes(".")) { exibirErroCLI("Use o formato Componente.Pino."); return; }
+    
+    const [c1, p1] = pinoRef1.split("."); 
+    const [c2, p2] = pinoRef2.split(".");
+    
+    const comp1 = componentes.find(c => c.id.toUpperCase() === c1.toUpperCase());
+    const comp2 = componentes.find(c => c.id.toUpperCase() === c2.toUpperCase());
+    if (!comp1 || !comp2) { exibirErroCLI("Componente não encontrado."); return; }
+    
+    const resolverPino = (comp, ref) => {
+        const exato = comp.pinos.find(p => p.nome.toUpperCase() === ref.toUpperCase());
+        if (exato) return exato;
+        if (comp.tipo === 'CI' && /^\\d+$/.test(ref)) return comp.pinos[parseInt(ref, 10) - 1] || null;
+        if (comp.tipo === 'CI') return comp.pinos.find(p => (p.rotulo || '').toUpperCase() === ref.toUpperCase()) || null;
+        return null;
+    };
+    const pin1 = resolverPino(comp1, p1);
+    const pin2 = resolverPino(comp2, p2);
+    if (!pin1 || !pin2) { exibirErroCLI("Pino inválido."); return; }
+
+    conexoes.push({
+        oComp: comp1, oPino: pin1, dComp: comp2, dPino: pin2,
+        get x1() { return this.oComp.posicaoPino(this.oPino).x; }, get y1() { return this.oComp.posicaoPino(this.oPino).y; },
+            get x2() { return this.dComp.posicaoPino(this.dPino).x; }, get y2() { return this.dComp.posicaoPino(this.dPino).y; }
+    });
+    desenharCenário();
+    exibirSucessoCLI("Fio Conectado!");
+}
+
+// ==========================================
+// PERSISTÊNCIA: SALVAR E CARREGAR PROJETOS
+// ==========================================
+function salvarProjeto() {
+    if (componentes.length === 0) { alert("Nenhum componente para salvar!"); return; }
+
+    const dadosProjeto = {
+        componentes: componentes.map(c => ({
+            id: c.id, tipo: c.tipo, valor: c.valor, x: c.x, y: c.y, metadados: { ...(c.metadados || {}), rotacao: c.rotacao, nomesPinos: Object.fromEntries(c.pinos.filter(p => p.rotulo).map(p => [p.nome, p.rotulo])) }
+        })),
+        conexoes: conexoes.map(f => ({
+            origemComp: f.oComp.id, origemPino: f.oPino.nome,
+            destinoComp: f.dComp.id, destinoPino: f.dPino.nome
+        }))
+    };
+
+    const blob = new Blob([JSON.stringify(dadosProjeto, null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "circuito.json";
+    link.click();
+    txtStatus.innerText = "Projeto exportado com sucesso!";
+}
+
+function carregarProjeto(event) {
+    const arquivo = event.target.files[0];
+    if (!arquivo) return;
+
+    const leitor = new FileReader();
+    leitor.onload = function(e) {
+        try {
+            const projeto = JSON.parse(e.target.result);
+            componentes = []; conexoes = [];
+
+            projeto.componentes.forEach(c => {
+                componentes.push(new ComponenteEsquematico(c.id, c.tipo, c.valor, c.x, c.y, c.metadados));
+            });
+
+            projeto.conexoes.forEach(f => {
+                const comp1 = componentes.find(c => c.id === f.origemComp);
+                const comp2 = componentes.find(c => c.id === f.destinoComp);
+                if (comp1 && comp2) {
+                    const pino1 = comp1.pinos.find(p => p.nome === f.origemPino);
+                    const pino2 = comp2.pinos.find(p => p.nome === f.destinoPino);
+                    if (pino1 && pino2) {
+                        conexoes.push({
+                            oComp: comp1, oPino: pino1, dComp: comp2, dPino: pino2,
+                            get x1() { return this.oComp.posicaoPino(this.oPino).x; }, get y1() { return this.oComp.posicaoPino(this.oPino).y; },
+            get x2() { return this.dComp.posicaoPino(this.dPino).x; }, get y2() { return this.dComp.posicaoPino(this.dPino).y; }
+                        });
+                    }
+                }
+            });
+
+            desenharCenário();
+            txtStatus.innerText = "Circuito restaurado do arquivo!";
+        } catch (err) {
+            alert("Erro ao ler o arquivo JSON.");
+        }
+    };
+    leitor.readAsText(arquivo);
+}
+
+function gerarNovoComponente(nome, tipo, valor, metadados = null) {
+    const x = Math.round((250 + Math.random() * 200) / 20) * 20;
+    const y = Math.round((150 + Math.random() * 150) / 20) * 20;
+    componentes.push(new ComponenteEsquematico(nome, tipo, valor, x, y, metadados));
+    desenharCenário(); 
+    exibirSucessoCLI(`Adicionado ${nome}.`);
+}
+
+function exibirErroCLI(msg) { txtStatus.innerText = msg; inputPrompt.style.borderColor = "#ef4444"; }
+function exibirSucessoCLI(msg) { txtStatus.innerText = msg; inputPrompt.value = ""; inputPrompt.style.borderColor = "#059669"; }
+
+function desenharReguas() {
+    const dpr = window.devicePixelRatio || 1;
+    const larguraH = Math.max(1, reguaHorizontal.clientWidth);
+    const alturaH = Math.max(1, reguaHorizontal.clientHeight);
+    const larguraV = Math.max(1, reguaVertical.clientWidth);
+    const alturaV = Math.max(1, reguaVertical.clientHeight);
+    reguaHorizontal.width = Math.round(larguraH * dpr);
+    reguaHorizontal.height = Math.round(alturaH * dpr);
+    reguaVertical.width = Math.round(larguraV * dpr);
+    reguaVertical.height = Math.round(alturaV * dpr);
+    ctxReguaH.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctxReguaV.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctxReguaH.fillStyle = '#202a36'; ctxReguaH.fillRect(0, 0, larguraH, alturaH);
+    ctxReguaV.fillStyle = '#202a36'; ctxReguaV.fillRect(0, 0, larguraV, alturaV);
+    ctxReguaH.strokeStyle = '#64748b'; ctxReguaH.fillStyle = '#cbd5e1';
+    ctxReguaH.font = '10px Arial'; ctxReguaH.textAlign = 'center';
+    const inicioX = Math.floor(areaVisualizacao.scrollLeft / 100) * 100;
+    for (let x = inicioX; x <= areaVisualizacao.scrollLeft + larguraH + 100; x += 20) {
+        const px = x - areaVisualizacao.scrollLeft;
+        ctxReguaH.beginPath(); ctxReguaH.moveTo(px, 0); ctxReguaH.lineTo(px, x % 100 === 0 ? 17 : 8); ctxReguaH.stroke();
+        if (x % 100 === 0) ctxReguaH.fillText(String(x), px, alturaH - 4);
+    }
+    ctxReguaV.strokeStyle = '#64748b'; ctxReguaV.fillStyle = '#cbd5e1';
+    ctxReguaV.font = '10px Arial'; ctxReguaV.textAlign = 'center';
+    const inicioY = Math.floor(areaVisualizacao.scrollTop / 100) * 100;
+    for (let y = inicioY; y <= areaVisualizacao.scrollTop + alturaV + 100; y += 20) {
+        const py = y - areaVisualizacao.scrollTop;
+        ctxReguaV.beginPath(); ctxReguaV.moveTo(larguraV, py); ctxReguaV.lineTo(y % 100 === 0 ? larguraV - 17 : larguraV - 8, py); ctxReguaV.stroke();
+        if (y % 100 === 0) { ctxReguaV.save(); ctxReguaV.translate(10, py); ctxReguaV.rotate(-Math.PI / 2); ctxReguaV.fillText(String(y), 0, 0); ctxReguaV.restore(); }
+    }
+}
+
+function desenharCenário() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#f0f0f2"; ctx.lineWidth = 1;
+    for (let x = 0; x < canvas.width; x += 20) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+    for (let y = 0; y < canvas.height; y += 20) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+
+    conexoes.forEach(fio => {
+        ctx.lineWidth = fio === conexaoSelecionada ? 4 : 2;
+        ctx.strokeStyle = fio === conexaoSelecionada ? "#f97316" : "#008000";
+        ctx.beginPath(); ctx.moveTo(fio.x1, fio.y1);
+        if (Math.abs(fio.x1 - fio.x2) > Math.abs(fio.y1 - fio.y2)) { ctx.lineTo(fio.x2, fio.y1); } else { ctx.lineTo(fio.x1, fio.y2); }
+        ctx.lineTo(fio.x2, fio.y2); ctx.stroke();
+    });
+    componentes.forEach(comp => {
+        comp.desenhar(ctx);
+        if (comp === componenteSelecionado) {
+            const centroX = comp.x + comp.largura / 2, centroY = comp.y + comp.altura / 2;
+            ctx.save();
+            ctx.translate(centroX, centroY);
+            ctx.rotate((comp.rotacao || 0) * Math.PI / 180);
+            ctx.strokeStyle = "#2563eb";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.strokeRect(-comp.largura / 2 - 6, -comp.altura / 2 - 6, comp.largura + 12, comp.altura + 12);
+            ctx.restore();
+        }
+    });
+    desenharReguas();
+}
+
+function alternarMoverTela() {
+    modoMoverTela = !modoMoverTela;
+    const btn = document.getElementById('btn-mover-tela');
+    btn.classList.toggle('ativo', modoMoverTela);
+    btn.innerText = modoMoverTela ? 'Mover tela: ON' : 'Mover tela: OFF';
+    txtStatus.innerText = modoMoverTela
+        ? 'Modo mover tela ativo: arraste o fundo para navegar pelo esquemático.'
+        : 'Modo normal: arraste os componentes para movê-los.';
+}
+
+function centralizarVisualizacao() {
+    areaVisualizacao.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    txtStatus.innerText = 'Visualização voltou ao início da área.';
+}
+
+function ativarModoFio() {
+    modoFiacao = !modoFiacao;
+    if (modoFiacao && modoMoverTela) alternarMoverTela();
+    const btn = document.getElementById('btn-fio');
+    if (modoFiacao) {
+        btn.style.background = "#dc2626"; btn.innerText = "Modo Fiação: ON";
+    } else {
+        btn.style.background = "#059669"; btn.innerText = "Modo Fiação: OFF"; pinoOrigemFio = null;
+    }
+}
+
+function distanciaPontoSegmento(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function encontrarConexaoNoPonto(mx, my) {
+    // Percorre de trás para frente para selecionar o fio visualmente mais próximo do clique.
+    for (let i = conexoes.length - 1; i >= 0; i--) {
+        const fio = conexoes[i];
+        const meioX = Math.abs(fio.x1 - fio.x2) > Math.abs(fio.y1 - fio.y2) ? fio.x2 : fio.x1;
+        const meioY = Math.abs(fio.x1 - fio.x2) > Math.abs(fio.y1 - fio.y2) ? fio.y1 : fio.y2;
+        const d1 = distanciaPontoSegmento(mx, my, fio.x1, fio.y1, meioX, meioY);
+        const d2 = distanciaPontoSegmento(mx, my, meioX, meioY, fio.x2, fio.y2);
+        if (Math.min(d1, d2) <= 7) return fio;
+    }
+    return null;
+}
+
+function removerConexao(fio) {
+    const indice = conexoes.indexOf(fio);
+    if (indice === -1) return;
+    conexoes.splice(indice, 1);
+    if (conexaoSelecionada === fio) conexaoSelecionada = null;
+    desenharCenário();
+    exibirSucessoCLI("Linha de conexão excluída.");
+}
+
+function excluirConexaoSelecionada() {
+    if (!conexaoSelecionada) {
+        txtStatus.innerText = "Clique em uma linha de conexão para selecioná-la antes de excluir.";
+        return;
+    }
+    removerConexao(conexaoSelecionada);
+}
+
+function removerComponente(comp) {
+    componentes = componentes.filter(c => c !== comp);
+    // Remove também todos os fios ligados ao componente excluído.
+    conexoes = conexoes.filter(f => f.oComp !== comp && f.dComp !== comp);
+    if (conexaoSelecionada && !conexoes.includes(conexaoSelecionada)) conexaoSelecionada = null;
+    if (componenteSelecionado === comp) componenteSelecionado = null;
+    if (arrastandoComp === comp) arrastandoComp = null;
+    desenharCenário();
+    exibirSucessoCLI(`Componente ${comp.id} excluído.`);
+}
+
+function excluirComponenteSelecionado() {
+    if (!componenteSelecionado) {
+        txtStatus.innerText = "Selecione um componente clicando nele antes de excluir.";
+        return;
+    }
+    removerComponente(componenteSelecionado);
+}
+
+function limparCanvas() { componentes = []; conexoes = []; componenteSelecionado = null; conexaoSelecionada = null; arrastandoComp = null; desenharCenário(); txtStatus.innerText = "Limpo."; }
+
+canvas.addEventListener('mousedown', (e) => {
+    // Shift + arrastar ou o botão "Mover tela" desloca a janela de visualização,
+    // sem alterar as posições dos componentes nem das conexões.
+    if (!modoFiacao && (modoMoverTela || e.shiftKey || e.button === 1)) {
+        arrastandoTela = true;
+        inicioArrastoTela = {
+            x: e.clientX, y: e.clientY,
+            scrollLeft: areaVisualizacao.scrollLeft,
+            scrollTop: areaVisualizacao.scrollTop
+        };
+        e.preventDefault();
+        return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+    if (modoFiacao) {
+        for (let comp of componentes) {
+            const pino = comp.verificarCliquePino(mx, my);
+            if (pino) {
+                if (!pinoOrigemFio) { pinoOrigemFio = { comp, pino }; } else {
+                    if (pinoOrigemFio.comp === comp && pinoOrigemFio.pino === pino) return;
+                    conexoes.push({
+                        oComp: pinoOrigemFio.comp, oPino: pinoOrigemFio.pino, dComp: comp, dPino: pino,
+                        get x1() { return this.oComp.posicaoPino(this.oPino).x; }, get y1() { return this.oComp.posicaoPino(this.oPino).y; },
+            get x2() { return this.dComp.posicaoPino(this.dPino).x; }, get y2() { return this.dComp.posicaoPino(this.dPino).y; }
+                    });
+                    pinoOrigemFio = null; desenharCenário();
+                } return;
+            }
+        }
+    } else {
+        for (let i = componentes.length - 1; i >= 0; i--) {
+            const comp = componentes[i];
+            if (comp.contemPonto(mx, my)) {
+                componenteSelecionado = comp;
+                arrastandoComp = comp;
+                offset.x = mx - comp.x; offset.y = my - comp.y;
+                desenharCenário();
+                conexaoSelecionada = null;
+                txtStatus.innerText = `Selecionado: ${comp.id}. Use “Excluir componente” ou a tecla Delete.`;
+                return;
+            }
+        }
+        const fioClicado = encontrarConexaoNoPonto(mx, my);
+        if (fioClicado) {
+            conexaoSelecionada = fioClicado;
+            componenteSelecionado = null;
+            desenharCenário();
+            txtStatus.innerText = `Linha selecionada (${conexoes.indexOf(fioClicado) + 1}). Use “Excluir linha” ou a tecla Delete.`;
+            return;
+        }
+        componenteSelecionado = null;
+        conexaoSelecionada = null;
+        desenharCenário();
+    }
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (arrastandoTela) {
+        areaVisualizacao.scrollLeft = inicioArrastoTela.scrollLeft - (e.clientX - inicioArrastoTela.x);
+        areaVisualizacao.scrollTop = inicioArrastoTela.scrollTop - (e.clientY - inicioArrastoTela.y);
+        return;
+    }
+    if (!arrastandoComp) return;
+    const rect = canvas.getBoundingClientRect();
+    arrastandoComp.x = Math.round((e.clientX - rect.left - offset.x) / 20) * 20;
+    arrastandoComp.y = Math.round((e.clientY - rect.top - offset.y) / 20) * 20;
+    desenharCenário();
+});
+window.addEventListener('mouseup', () => {
+    arrastandoComp = null;
+    arrastandoTela = false;
+});
+
+window.addEventListener('keydown', (e) => {
+    const alvo = e.target;
+    const digitando = alvo && (alvo.tagName === 'INPUT' || alvo.tagName === 'TEXTAREA' || alvo.isContentEditable);
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !digitando) {
+        if (conexaoSelecionada) {
+            e.preventDefault();
+            excluirConexaoSelecionada();
+        } else if (componenteSelecionado) {
+            e.preventDefault();
+            excluirComponenteSelecionado();
+        }
+    }
+});
+canvas.addEventListener('mouseleave', () => {
+    if (!arrastandoTela) arrastandoComp = null;
+});
+canvas.addEventListener('contextmenu', (e) => {
+    if (arrastandoTela || modoMoverTela) e.preventDefault();
+});
+desenharCenário();
+</script>
+</body>
+</html>
